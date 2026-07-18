@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="id" class="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>iamdiary ✨</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = { darkMode: 'class' };
+    </script>
+    <style>
+        body { transition: background-color 0.3s, color 0.3s; }
+        .glass { background: rgba(255, 255, 255, 0.8); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.2); }
+        .dark .glass { background: rgba(30, 41, 59, 0.8); border: 1px solid rgba(255,255,255,0.05); }
+        .grid-item { aspect-ratio: 1/1; cursor: pointer; border-radius: 1rem; overflow: hidden; position: relative; }
+        .selected { outline: 4px solid #3b82f6; }
+    </style>
+</head>
+<body class="bg-blue-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 min-h-screen">
+
+    <nav class="glass sticky top-0 z-40 p-4 flex justify-between items-center border-b border-slate-200 dark:border-slate-800">
+        <h1 class="text-2xl font-black text-blue-600 dark:text-blue-400">iamdiary ✨</h1>
+        <div class="flex gap-2">
+            <button onclick="toggleTheme()" class="p-2 rounded-full hover:bg-slate-200 dark:hover:bg-slate-700">🌓</button>
+            <button onclick="document.getElementById('addModal').classList.remove('hidden')" class="bg-blue-600 text-white px-5 py-2 rounded-full font-bold shadow-lg">+</button>
+        </div>
+    </nav>
+
+    <main class="p-6 max-w-5xl mx-auto">
+        <h2 class="text-3xl font-extrabold mb-8">Kenangan Anda</h2>
+        <div id="albumContainer" class="grid grid-cols-2 md:grid-cols-4 gap-6"></div>
+    </main>
+
+    <div id="addModal" class="fixed inset-0 bg-black/50 hidden flex items-center justify-center p-4 z-50">
+        <div class="bg-white dark:bg-slate-900 p-8 rounded-3xl w-full max-w-sm shadow-2xl">
+            <h3 class="text-xl font-bold mb-4">Tambah Album</h3>
+            <input type="text" id="albumNameInput" placeholder="Nama Album..." class="w-full p-3 mb-4 bg-slate-100 dark:bg-slate-800 rounded-xl outline-none">
+            <input type="file" id="mediaInput" multiple accept="image/*,video/*" class="w-full mb-6">
+            <button onclick="saveAlbum()" class="w-full bg-blue-600 text-white p-3 rounded-xl font-bold">Simpan</button>
+            <button onclick="closeModal('addModal')" class="w-full mt-3 text-slate-500">Batal</button>
+        </div>
+    </div>
+
+    <div id="detailModal" class="fixed inset-0 bg-blue-50 dark:bg-slate-950 hidden z-50 flex flex-col">
+        <div class="p-4 flex justify-between items-center border-b dark:border-slate-800">
+            <h3 id="detailTitle" class="font-bold text-xl cursor-pointer flex items-center gap-2" onclick="editAlbumName()"></h3>
+            <button onclick="closeModal('detailModal')" class="text-3xl">&times;</button>
+        </div>
+        <div id="detailContent" class="grid grid-cols-3 md:grid-cols-6 gap-2 p-2 flex-grow overflow-y-auto"></div>
+        <div id="actionToolbar" class="hidden p-4 border-t dark:border-slate-800 flex justify-between bg-white dark:bg-slate-900">
+            <button onclick="deleteSelected()" class="text-red-500 font-bold px-4 py-2">Hapus Terpilih</button>
+            <button onclick="exitSelectionMode()" class="px-4 py-2">Batal</button>
+        </div>
+    </div>
+
+    <div id="viewer" class="fixed inset-0 bg-black/95 hidden flex items-center justify-center z-[60]">
+        <img id="viewImg" class="max-h-[80vh] max-w-full rounded-lg hidden">
+        <video id="viewVid" controls class="max-h-[80vh] max-w-full rounded-lg hidden"></video>
+        <div class="absolute bottom-8 flex gap-4">
+            <a id="downloadBtn" class="bg-white text-black px-8 py-3 rounded-full font-bold cursor-pointer">Unduh</a>
+            <button onclick="closeModal('viewer')" class="bg-white/20 text-white px-8 py-3 rounded-full font-bold">Tutup</button>
+        </div>
+    </div>
+
+    <script>
+        let db, currentAlbumId, selectionMode = false, selectedFiles = new Set(), currentMediaList = [];
+        const request = indexedDB.open("IamDiaryDB", 4);
+        request.onupgradeneeded = e => { const db = e.target.result; if(!db.objectStoreNames.contains("albums")) db.createObjectStore("albums", { keyPath: "id", autoIncrement: true }); };
+        request.onsuccess = e => { db = e.target.result; loadAlbums(); };
+
+        function toggleTheme() { document.documentElement.classList.toggle('dark'); }
+        function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
+
+        async function saveAlbum() {
+            const name = document.getElementById('albumNameInput').value;
+            const files = document.getElementById('mediaInput').files;
+            if(!name || files.length === 0) return;
+            const tx = db.transaction("albums", "readwrite");
+            tx.objectStore("albums").add({ name, media: Array.from(files) });
+            tx.oncomplete = () => { closeModal('addModal'); loadAlbums(); };
+        }
+
+        function loadAlbums() {
+            db.transaction("albums").objectStore("albums").getAll().onsuccess = e => {
+                document.getElementById('albumContainer').innerHTML = e.target.result.map(a => `
+                    <div class="group cursor-pointer" onclick="openDetail(${a.id})">
+                        <div class="aspect-square bg-slate-200 dark:bg-slate-800 rounded-3xl mb-3 flex items-center justify-center overflow-hidden">
+                            ${a.media.length > 0 ? `<img src="${URL.createObjectURL(a.media[0])}" class="w-full h-full object-cover">` : '📷'}
+                        </div>
+                        <h4 class="font-bold text-center truncate">${a.name}</h4>
+                    </div>
+                `).join('');
+            };
+        }
+
+        function openDetail(id) {
+            currentAlbumId = id;
+            db.transaction("albums").objectStore("albums").get(id).onsuccess = e => {
+                const album = e.target.result;
+                currentMediaList = album.media;
+                document.getElementById('detailTitle').innerHTML = album.name + ' <span class="text-xs text-blue-500">✏️</span>';
+                renderGrid();
+                document.getElementById('detailModal').classList.remove('hidden');
+            };
+        }
+
+        function renderGrid() {
+            const container = document.getElementById('detailContent');
+            container.innerHTML = currentMediaList.map((m, i) => `
+                <div class="grid-item ${selectedFiles.has(i) ? 'selected' : ''}" 
+                     onclick="handleMediaClick(${i})" oncontextmenu="enterSelectionMode(${i}); return false;">
+                    <img src="${URL.createObjectURL(m)}" class="w-full h-full object-cover">
+                </div>
+            `).join('');
+        }
+
+        function handleMediaClick(i) {
+            if(selectionMode) {
+                if(selectedFiles.has(i)) selectedFiles.delete(i); else selectedFiles.add(i);
+                renderGrid();
+            } else {
+                const file = currentMediaList[i];
+                const isVid = file.type.includes('video');
+                const imgEl = document.getElementById('viewImg');
+                const vidEl = document.getElementById('viewVid');
+                imgEl.classList.toggle('hidden', isVid);
+                vidEl.classList.toggle('hidden', !isVid);
+                const activeEl = isVid ? vidEl : imgEl;
+                activeEl.src = URL.createObjectURL(file);
+                const dl = document.getElementById('downloadBtn');
+                dl.href = activeEl.src; dl.download = file.name;
+                document.getElementById('viewer').classList.remove('hidden');
+            }
+        }
+
+        function enterSelectionMode(i) {
+            selectionMode = true;
+            if(i !== undefined) selectedFiles.add(i);
+            document.getElementById('actionToolbar').classList.remove('hidden');
+            renderGrid();
+        }
+
+        function exitSelectionMode() { selectionMode = false; selectedFiles.clear(); document.getElementById('actionToolbar').classList.add('hidden'); renderGrid(); }
+
+        function deleteSelected() {
+            db.transaction("albums", "readwrite").objectStore("albums").get(currentAlbumId).onsuccess = e => {
+                let album = e.target.result;
+                album.media = album.media.filter((_, i) => !selectedFiles.has(i));
+                db.transaction("albums", "readwrite").objectStore("albums").put(album).oncomplete = () => { exitSelectionMode(); openDetail(currentAlbumId); loadAlbums(); };
+            };
+        }
+
+        function editAlbumName() {
+            const newName = prompt("Ubah nama album:");
+            if(!newName) return;
+            db.transaction("albums", "readwrite").objectStore("albums").get(currentAlbumId).onsuccess = e => {
+                let album = e.target.result;
+                album.name = newName;
+                db.transaction("albums", "readwrite").objectStore("albums").put(album).oncomplete = () => { openDetail(currentAlbumId); loadAlbums(); };
+            };
+        }
+    </script>
+</body>
+</html>
